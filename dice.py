@@ -60,7 +60,7 @@ def highest(num, rolls):
 def roll(dice):
     """
     :param dice:    list containing D objects and/or constants
-    :return:        a roll matrix, depending on the dim of input D
+    :return:        A roll matrix, depending on the dim of input D
     """
 
     dim = [item.dim for item in dice if isinstance(item, D)]
@@ -81,6 +81,9 @@ def roll(dice):
 def histogram(rolls, title=None, xmax=None, ymax=None):
     """
     :param rolls:   one dimensional matrix to plot
+    :param title:   title to put on plot and save the image as
+    :param xmax:    maximum x value to use on plot
+    :param ymax:    maximum y value to use on plot
     """
 
     if len(rolls.shape) != 1:
@@ -93,16 +96,16 @@ def histogram(rolls, title=None, xmax=None, ymax=None):
     plt.xlabel("Value")
     plt.grid()
 
-    if title is not None:
-        plt.title(title)
-
     if xmax is not None:
         plt.xlim([0, xmax])
 
     if ymax is not None:
         plt.ylim([0, ymax])
 
-    plt.savefig("{0}.png".format(title))
+    if title is not None:
+        plt.title(title)
+        plt.savefig("{0}.png".format(title))
+
     plt.show()
 
 
