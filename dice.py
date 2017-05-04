@@ -3,8 +3,7 @@ __author__ = 'Jwely'
 import numpy
 import matplotlib.pyplot as plt
 
-
-class D():
+class D(object):
     """
     Simple dice class that allows more natural syntax for rolling dice
 
@@ -36,25 +35,20 @@ class D():
         return numpy.random.randint(1, self.sides + 1, self.dim)
 
 
-class Result():
-    """
-    i dont even remember what these are for.
-    """
-
-    def __init__(self, dice):
-        self.dice = dice
-        self.result = self.roll()
-
-    def roll(self):
-        """ encapsulates the roll function of all constituent dice """
-        return roll(self.dice)
-
-
 def highest(num, rolls):
     """ returns the highest "num" of dice from rolls matrix """
-
     ordered = numpy.sort(rolls)
     return ordered[:, -num:]
+
+
+def lowest(num, rolls):
+    """ returns the lowest 'num' of dice from rolls matrix """
+    ordered = numpy.sort(rolls)
+    return ordered[:, :num]
+
+
+def bestof(n_best, n_pool):
+    pass
 
 
 def roll(dice):
@@ -90,10 +84,16 @@ def histogram(rolls, title=None, xmax=None, ymax=None):
         rolls = numpy.sum(rolls, axis=1)
 
     plt.hist(rolls, bins=range(min(rolls), max(rolls) + 2),
-             align="left", color="darksalmon", normed=True)
-    plt.axvline(rolls.mean(), color="navy", linestyle="dashed", linewidth=2)
+             align="left", edgecolor='k', facecolor="darksalmon",
+             normed=True, rwidth=0.9)
+    plt.axvline(numpy.mean(rolls), color="navy", linestyle="--", linewidth=2)
+    plt.axvline(numpy.median(rolls), color="black", linestyle=":", linewidth=2)
+    plt.legend(["mean = {:0.2f}".format(numpy.mean(rolls)),
+                "median = {:0.0f}".format(numpy.median(rolls)),
+                "histogram"])
     plt.ylabel("Rate of occurrence")
     plt.xlabel("Value")
+    plt.xticks([x for x in range(min(rolls), max(rolls)+1)])
     plt.grid()
 
     if xmax is not None:
@@ -112,14 +112,20 @@ def histogram(rolls, title=None, xmax=None, ymax=None):
 # now we can very quickly do monte carlo simulations on various dice rolls
 if __name__ == "__main__":
 
-    dims = int(1e6)
+    dims = 1e7
 
     # syntax examples
     rolls = roll(3 * D(6, dims))
     histogram(rolls, "3_summed_3D6", ymax=0.2)
 
     rolls = highest(3, roll(4 * D(6, dims)))
-    histogram(rolls, "3_highest_4D6", ymax=0.2)
+    histogram(rolls, '3_highest_4D6', ymax=0.2)
+
+    rolls = highest(1, roll(2 * D(20, dims)))
+    histogram(rolls, "highest_of_2_d20", ymax=0.2)
+
+    rolls = lowest(1, roll(2 * D(20, dims)))
+    histogram(rolls, "lowest_of_2_d20", ymax=0.2)
 
     rolls = highest(3, roll(5 * D(6, dims)))
     histogram(rolls, "3_highest_5D6", ymax=0.2)
