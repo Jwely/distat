@@ -47,10 +47,6 @@ def lowest(num, rolls):
     return ordered[:, :num]
 
 
-def bestof(n_best, n_pool):
-    pass
-
-
 def roll(dice):
     """
     :param dice:    list containing D objects and/or constants
@@ -104,7 +100,7 @@ def histogram(rolls, title=None, xmax=None, ymax=None):
 
     if title is not None:
         plt.title(title)
-        plt.savefig("{0}.png".format(title))
+        plt.savefig("plots/{0}.png".format(title))
 
     plt.show()
 
