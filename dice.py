@@ -168,7 +168,11 @@ def histogram(rolls, title=None, xmax=None, ymax=None):
 if __name__ == "__main__":
 
     # syntax examples
-    roll = Roll(2 * D(20), Highest(1))
+    # roll = Roll(2 * D(20), Highest(1))
+    # histogram(roll(1e6))
+
+    # this doesnt work! it should!
+    roll = Roll(4 * D(6), Add(Highest(3)))
     histogram(roll(1e6))
 
     # rolls = roll(3 * D(6, dims))
