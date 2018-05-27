@@ -106,7 +106,7 @@ def viz_reroll_strat():
         ]
 
     s = Serializer()
-    path = Path("reroll_strat.json")
+    path = Path("jsonlib/reroll_strat.json")
 
     #db = RollDefDashboard.from_rolldefs(rolldefs, n=1e4)
     #s.dump(db, path)
