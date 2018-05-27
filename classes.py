@@ -1,88 +1,71 @@
-from typing import List, Union, Callable
-
-import matplotlib
+from typing import Union, List, Tuple
 import numpy as np
-
-from bases import Die_, Rule_, Selector_, Aggregator_, Sum_
-
-matplotlib.use('TkAgg')
-
-__author__ = 'Jwely'
-__all__ = [
-    "Modifier",
-    "Die",
-    "D",
-    "Maximize",
-    "Reroll",
-    "Pool",
-    "Selector",
-    "Aggregator",
-    "Sum",
-    "Highest",
-    "Lowest",
-    "Pos",
-    "RollDef"
-]
+from util import dist, combine_dists, median_from_dist, mean_from_dist
 
 
-class Modifier(object):
-
-    def __init__(self, mod: int = None):
-        if mod is None:
-            mod = 0
-        self.mod = mod
-
-    def __call__(self, arr: np.array):
-        return arr + self.mod
+# Die =====================================================
+class Source(object):
+    pass
 
 
-class Die(Die_):
+class Die(Source):
+    """ base arbitrary die class """
 
-    def __init__(self, sides: int, rule: Rule_ = None):
+    def __init__(self, sides: Union[int, List[int]]):
         """
+        Accepts a single integer, or a list of integers. If given a single integer
+        the die will have that many sides, 1-sides. If given a list of integers
+        the die will have those sides exactly, including duplicate faces.
 
-        :param sides: number of sides on the dice
-        :param rule: rule to apply, such as reroll 1's one time Reroll(1)
+        Examples:
+            Die(4) produces a die with faces [1,2,3,4]
+            Die([0,0,0,1]) produces a die with those specific faces.
+
+        :param sides: Integer number of sides of a standard dice, or a list of face values
         """
-        if rule is None:
-            rule = Rule_()
-
-        self.rule = rule
         self.sides = sides
+        assert isinstance(sides, list) or isinstance(sides, int)
+
+        # Use special face mapper.
+        if isinstance(sides, list):
+            self._faces = sides
+            self._n_sides = len(sides)
+            self._mapper = {i + 1: s for i, s in enumerate(self._faces)}
+
+        # dice is standard ascending face values.
+        elif isinstance(sides, int):
+            self._faces = [i for i in range(1, sides + 1)]
+            self._n_sides = sides
+            self._mapper = None
+
+    def __rmul__(self, other: int):
+        """ defines leading integer multiplicative behavior of die """
+        assert isinstance(other, int)
+        return [Die(self.sides) for _ in range(other)]
 
     def __repr__(self):
         """representation of the die """
-        return f"(D{int(self.sides)}: {self.rule})"
+        if self._mapper is None:
+            return f"(D{int(self._n_sides)})"
+        else:
+            return f"(D[{self._faces}]"
 
-    def _roll(self, n: Union[int, float] = None):
+    def __call__(self, n: Union[int, float] = None):
         if n is None:
             n = 1
 
-        result = np.random.randint(1, self.sides + 1, int(n))
+        # the result is a random side
+        result = np.random.randint(1, self._n_sides + 1, int(n))
+
+        # map the result to the actual sides if needed
+        if self._mapper is not None:
+            print(self._mapper)
+            result = np.vectorize(self._mapper.get)(result)
 
         if n == 1:
             result.reshape(1, 1)
 
         return result
-
-    # TODO: inconsistent with other classes to not use __call__
-    # TODO: Is .roll() more readable? could the others be more readable too?
-    # TODO: Pool class also uses .roll()
-    def roll(self, n:  Union[int, float] = None):
-        """ number of dice rolled decided when called """
-        result = self._roll(n)
-        return self.rule(result, self)
-
-    def __rmul__(self, other: int):
-        """ defines leading integer multiplicative behavior of die """
-        assert isinstance(other, int)
-        return Pool([self for _ in range(other)])
-
-    def __add__(self, other):
-        if isinstance(other, Die):
-            return Pool([self, other])
-        elif isinstance(other, Pool):
-            return Pool + other
 
 
 class D(Die):
@@ -90,202 +73,21 @@ class D(Die):
     pass
 
 
-class Maximize(Rule_):
-    """ maximizes the roll on the die, setting all results to the number of sides"""
-    # TODO: probably useless. but helps for very simple tests!
-    def __call__(self, result: np.array, die: Die):
-        result = result * 0 + die.sides
-        return result
-
-
-class Reroll(Rule_):
-    def __init__(self,
-                 values: Union[int, List[int]] = None,
-                 less_than: int = None,
-                 greater_than: int = None,
-                 n_allowed: int = 1):
-        """
-
-        :param values: individual values on the dice to reroll
-        :param n_allowed: number of rerolls to allow, defaults to one.
-        """
-        # takes exactly one argument
-        assert any([arg is not None for arg in [values, less_than, greater_than]])
-
-        if isinstance(values, int):
-            values = [values]
-
-        self.values = values
-        self.less_than = less_than
-        self.greater_than = greater_than
-        self.n_allowed = n_allowed
-
-    def __call__(self, result: np.array, die: Die):
-        """
-        examines results for values that meet the reroll criteria,
-        then replaces the numbers with new rolls. Executes up to
-        self.n_allowed times.
-
-        :param result:
-        :param die:
-        :param _n:
-        :return:
-        """
-        _n = 0
-
-        # TODO: Significantly increases compute time! can indexing be more efficient?
-        while _n < self.n_allowed:
-            reroll_indexer = np.zeros(result.shape).astype(bool)
-
-            # add to the indexer based on each logical check
-            if self.values is not None:
-                reroll_indexer += np.isin(result, self.values)
-
-            if self.less_than is not None:
-                reroll_indexer += result < self.less_than
-
-            if self.greater_than is not None:
-                reroll_indexer += result > self.greater_than
-
-            n_rerolls = sum(reroll_indexer)
-            if n_rerolls > 0:
-                rerolls = die._roll(n_rerolls)
-                result[reroll_indexer] = rerolls
-
-            _n += 1
-
-        return result
-
-    def __repr__(self):
-        if self.values is not None:
-            return f"reroll {self.values}"
-        if self.less_than is not None:
-            return f"reroll < {self.less_than}"
-        if self.greater_than is not None:
-            return f"reroll > {self.greater_than}"
-
-
-class Pool(object):
-
-    def __init__(self, dice: List[Die]):
-        """ A simple collection of multiple dice """
-        self.dice = dice
-
-    def roll(self, *args):
-        rolls = [d.roll(*args) for d in self.dice]
-        return np.column_stack(rolls)
-
-    def __add__(self, other):
-        """ modifies contents of dice pool """
-        if isinstance(other, Pool):
-            return Pool(self.dice + other.dice)
-        elif isinstance(other, Die):
-            return Pool(self.dice + [other])
-
-    def __repr__(self):
-        """representation of the pool"""
-        return "[{}]".format(', '.join([d.__repr__() for d in self.dice]))
-
-
-class Selector(Selector_):
-    """
-    Defines base behavior for chaining multiple
-    operations together
-    """
-    def __sub__(self, other):
-        def sub(arr: np.array):
-            return self(arr) - other(arr)
-        return sub
-
-    def __neg__(self):
-        def neg(arr: np.array):
-            return - self(arr)
-
-        return neg
-
-    def __add__(self, other: Union[int, np.array, Selector_, Aggregator_]):
-        def add(_other):
-            if isinstance(_other, Selector_) or isinstance(_other, Aggregator_):
-                return _other()
-            else:
-                return np.sum(_other, axis=1)
-        return add
-
-    def __pos__(self, other):
-        return self.__add__(other)
-
-
-class Aggregator(Aggregator_):
-
-    def __init__(self,
-                 ops: Union[
-                     List[Callable[[np.array], np.array]],
-                     Selector]
-                 ):
-        if isinstance(ops, list):
-            self.ops = ops
-        elif isinstance(ops, Aggregator):
-            self.ops = ops.ops
-        elif isinstance(ops, Selector):
-            self.ops = [ops]
+# Filters =================================================
+class Filter(object):
 
     def __call__(self, arr: np.array):
-        """ chains the list of operations """
-
-        result = arr
-        for op in self.ops:
-            result = op(result)
-
-        return result
-
-    def __sub__(self, other):
-        def sub(arr: np.array):
-            return self(arr) - other(arr)
-        return sub
-
-    def __add__(self, other: Union[int, np.array, Selector_, Aggregator_]):
-        def add(_other):
-            if isinstance(_other, Selector_) or isinstance(_other, Aggregator_):
-                return _other()
-            else:
-                return np.sum(_other, axis=1)
-        return add
+        pass
 
 
-# def Sum(agg: Aggregator):
-#     agg.ops += [Sum_()]
-#     return agg
-
-class Sum(Aggregator):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        if not isinstance(self.ops[-1], Sum_):
-            self.ops += [Sum_()]
-
-
-class Highest(Selector):
-
-    def __init__(self, n: int = None):
-
-        self.n = n
+class All(Filter):
 
     def __call__(self, arr: np.array):
-        rolls = np.sort(arr)
-        return rolls[:, -self.n:]
+        return arr
 
 
-class Lowest(Selector):
-    def __init__(self, n: int = None):
-        self.n = n
-
-    def __call__(self, arr: np.array):
-        rolls = np.sort(arr)
-        return rolls[:, :self.n]
-
-
-class Pos(Selector):
+class Position(Filter):
+    """ positional"""
     def __init__(self, *args):
         """
         a position operator selects dice by simple index position
@@ -306,50 +108,360 @@ class Pos(Selector):
             return result
 
 
-class RollDef(object):
+class Highest(Filter):
+
+    def __init__(self, n: int = None):
+
+        self.n = n
+
+    def __call__(self, arr: np.array):
+        rolls = np.sort(arr)
+        return rolls[:, -self.n:]
+
+
+class Lowest(Filter):
+
+    def __init__(self, n: int = None):
+        self.n = n
+
+    def __call__(self, arr: np.array):
+        result = np.sort(arr)
+        return result[:, :self.n]
+
+
+# Selectors are 1 dimensional =============================
+class Selector(object):
     """
-    Defines a Roll of the dice, including the pool of dice to be thrown,
-    the way to aggregate those dice, and modifiers to apply to the roll.
+    Selectors do not produce an output of a predictable dimension,
+    and thus really only work for 1d -> 1d
+    """
+    def __call__(self, arr: np.array):
+        return arr
 
-    Instantiating a RollDef just defines the roll, to get results use
-    the __call__ method via
 
-        RollDef()   # computes the roll just one time.
-        RollDef(n)  # computes the roll "n" times (useful for monte-carlo simulation)
+class EqualTo(Selector):
 
-    Using an "n" value of 1e6 is much less than 1s to compute in most cases.
+    def __init__(self, values: Union[int, List[int]]):
+        self.values = values
+
+    def __call__(self, arr: np.array):
+        result = np.isin(arr, self.values)
+        return result
+
+
+class LessThan(Selector):
+
+    def __init__(self, less_than: int):
+        self.less_than = less_than
+
+    def __call__(self, arr: np.array):
+        return arr < self.less_than
+
+
+class GreaterThan(Selector):
+
+    def __init__(self, greater_than: int):
+        self.greater_than = greater_than
+
+    def __call__(self, arr: np.array):
+        return arr > self.greater_than
+
+
+# Aggregator  =============================================
+class Aggregator(object):
+
+    def __init__(self, ops: Union[Selector, Filter, List[Union[Selector, Filter]]] = None):
+
+        if ops is None:
+            ops = [All()]
+
+        if not isinstance(ops, list):
+            ops = [ops]
+
+        assert isinstance(ops, list)
+        if isinstance(ops, list):  # should always be true now
+            for op in ops:
+                assert isinstance(op, Selector) or isinstance(op, Filter)
+
+        self.ops = ops
+
+    def _single_selector(self):
+
+        if len(self.ops) == 1:
+            if isinstance(self.ops[0], Selector):
+                return True
+        return False
+
+    def _dual_selector(self):
+
+        if len(self.ops) == 2:
+            if all([isinstance(o, Selector) for o in self.ops]):
+                return True
+        return False
+
+    def _single_filter(self):
+        if len(self.ops) == 1:
+            if isinstance(self.ops[0], Filter):
+                return True
+        return False
+
+    def _dual_filter(self):
+
+        if len(self.ops) == 2:
+            if all([isinstance(o, Filter) for o in self.ops]):
+                return True
+        return False
+
+    def _op(self, arr: np.array):
+
+        if self._single_selector():
+            selection = self.ops[0](arr)
+            return arr[selection]
+
+        elif self._dual_selector():
+            return [arr[o(arr)] for o in self.ops]
+
+        elif self._single_filter():
+            return self.ops[0](arr)
+
+        elif self._dual_filter():
+            return [o(arr) for o in self.ops]
+
+        else:
+            return arr
+
+    def __call__(self, arr: np.array):
+        pass
+
+
+class Sum(Aggregator):
+
+    def __call__(self, arr: np.array):
+
+        result = self._op(arr)
+        if self._dual_filter():
+            result = np.hstack((result[0], result[1]))
+        elif self._dual_selector():
+            result = np.sum(result)
+
+        if len(result.shape) > 1:
+            return np.sum(result, axis=1)
+        else:
+            print("TODO: is this a desireable case for Sum?")
+            return arr
+
+
+class Difference(Aggregator):
+
+    def __init__(self, ops):
+        super().__init__(ops)
+
+        assert self._dual_selector() or self._dual_filter()
+
+    def __call__(self, arr: np.array):
+
+        result = self._op(arr)
+        first = result[0]
+        second = result[1]
+        return first - second
+
+
+# Conditional Actions =====================================
+class Action(object):
+
+    def __call__(self, arr: np.array, source: Die):
+        pass
+
+
+class ReRoll(Action):
+
+    def __init__(self, selector: Union[Selector, List[Selector]]):
+        self.selector = selector
+
+    def select(self, arr: np.array):
+
+        if isinstance(self.selector, list):
+            selections = [s(arr) for s in self.selector]
+            selection = np.sum(selections)
+
+        elif isinstance(self.selector, Selector):
+            selection = self.selector(arr)
+
+        else:
+            raise Exception("what?")
+
+        return selection
+
+    def __call__(self, arr: np.array, source: Die):
+        selected = self.select(arr)
+
+        n_rerolls = sum(selected)
+        if n_rerolls > 0:
+            rerolls = source(n_rerolls)
+            arr[selected] = rerolls
+        return arr
+
+
+# RollDef =================================================
+class RollDef_(Source):
+    pass
+
+
+Operation = Union[Selector, Filter, Aggregator, Action]
+
+
+class RollDef(RollDef_):
+    """
+    chains all the things together
     """
     def __init__(self,
-                 pool: Union[Pool, Die],
-                 agg: Aggregator = None,
-                 mod: Modifier = None,
+                 source: Union[Source, List[Source]],
+                 ops: Union[Operation, List[Operation]],
                  name: str = None,
-                 desc: str = None):
-        """
-        :param pool: A Pool instance or a single Die
-        :param agg: An Aggregator instance, defaults to pass through Op()
-        :param mod: A Modifier instance, defaults to Modifier(0)
-        :param name: Special name to give to this roll definition
-        :param desc: Full description to give to this roll definition
-        """
-        # dummy function for aggregator
-        if agg is None:
-            agg = Selector()
+                 desc: str = None,
+                 verbose: bool = False):
 
-        if mod is None:
-            mod = Modifier(0)
+        if not isinstance(ops, list):
+            ops = [ops]
 
-        self.pool = pool
-        self.agg = agg
-        self.mod = mod
-
+        self.source = source
+        self.ops = ops
         self.name = name
         self.desc = desc
+        self.verbose = verbose
 
-    def __call__(self, *args):
-        pooled = self.pool.roll(*args)
-        aggregated = self.agg(pooled)
-        modified = self.mod(aggregated)
-        return modified
+    def __rmul__(self, other: int):
+        """ defines leading integer multiplicative behavior of a roll definition """
+        assert isinstance(other, int)
+        return [RollDef(self.source, self.ops) for _ in range(other)]
+
+    def _sources(self, n: int = None):
+        if isinstance(self.source, list):
+            rolls = [s(n) for s in self.source]
+            stack = np.column_stack(rolls)
+            return stack
+        else:
+            return self.source(n)
+
+    def __call__(self, n: int = None):
+
+        if n is None:
+            n = 1
+
+        # initialize by calling first arg, which should be a source!
+        result = self._sources(n)
+
+        if self.verbose:
+            print("source", result, result.shape)
+
+        for op in self.ops:
+
+            if isinstance(op, Action):
+                result = op(result, self.source)
+
+                if self.verbose:
+                    print(op, '\n', result, result.shape)
+
+            elif isinstance(op, Aggregator):
+                result = op(result)
+
+                if self.verbose:
+                    print(op, '\n', result, result.shape)
+
+            elif isinstance(op, Filter):
+                result = op(result)
+
+                if self.verbose:
+                    print(op, '\n', result, result.shape)
+
+        return result
+
+    def dist(self, n: Union[int, float] = None):
+        """ creates a Dist object from this rolldef """
+        return Dist.calc(rolldef=self, n=n)
+
+
+# Result storage and viz ==================================
+class Dist(object):
+
+    def __init__(self,
+                 values: np.array,
+                 bins: np.array,
+                 rolldef: RollDef,
+                 mean: float = None,
+                 median: float = None,
+                 n: int = None):
+        """
+        Stores the values of a rolldef distribution calculation.
+
+        :param values:
+        :param bins:
+        :param rolldef:
+        :param n:
+        """
+
+        self.values = values
+        self.bins = bins
+        self.rolldef = rolldef
+        self.mean = mean
+        self.median = median
+        self.n = n
+
+    def __call__(self, n: int = None):
+        """ relay underlying rolldef calls """
+        return self.rolldef(n)
+
+    def add_accuracy(self, n: Union[int, float]) -> Tuple[np.array, np.array]:
+        """
+        Add additional simulations of the rolldef, updates
+        the 'values', 'bins', and 'n', attributes of this class instance.
+        """
+        added_rolls = self.rolldef(n)
+        added_vals, added_bins = dist(added_rolls)
+        new_values, new_bins = \
+            combine_dists(self.values, self.bins, self.n, added_vals, added_bins, n)
+
+        # update all the attributes to include increased 'n' sims
+        self.values = new_values
+        self.bins = new_bins
+        self.median = median_from_dist(new_values, new_bins)
+        self.mean = mean_from_dist(new_values, new_bins)
+        self.n = self.n + n
+        return self.values, self.bins
+
+    @classmethod
+    def calc(cls, rolldef: RollDef, n: Union[int, float] = None):
+        """ instantiates from a rolldef and a number of times to roll for histogram """
+        if n is None:
+            n = 1e6
+
+        rolls = rolldef(n)
+        values, bins = dist(rolls)
+        return cls(values=values, bins=bins, rolldef=rolldef,
+                   mean=np.mean(rolls), median=np.median(rolls), n=n)
+
+
+if __name__ == "__main__":
+
+    rd = RollDef(
+        RollDef(
+            4 * RollDef(
+                D(6),
+                ReRoll(
+                    EqualTo(1)
+                )
+            ),
+            Sum(
+                Highest(3),
+            ),
+        ),
+        ReRoll(LessThan(15))
+    ).dist(5e4)
+
+    dists = [(rd.n, (rd.values, rd.bins))]
+    for i in range(10):
+        dists.append((rd.n, rd.add_accuracy(5e4)))
+
+    print(dists)
 
 
